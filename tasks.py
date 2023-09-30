@@ -1,6 +1,9 @@
 from google.cloud import storage
 from bs4 import BeautifulSoup
 import numpy as np
+import networkx as nx
+import concurrent.futures
+from scipy.sparse import dok_matrix, csr_matrix
 
 # Initialize the Google Cloud Storage client
 storage_client = storage.Client()
@@ -19,45 +22,41 @@ outgoing_counts = {}
 blobs = list(bucket.list_blobs())
 
 # Iterate through the blobs and analyze HTML files
-for blob in blobs:
+def process_html_file(blob):
     if blob.name.endswith('.html'):
         # Download HTML file content as bytes
         html_content_bytes = blob.download_as_bytes()
-
-        # Convert bytes to a string assuming UTF-8 encoding
         html_content_str = html_content_bytes.decode('utf-8')
 
-        # Parse HTML with BeautifulSoup
         soup = BeautifulSoup(html_content_str, 'html.parser')
 
-        # Find all anchor (a) tags in the HTML
-        anchor_tags = soup.find_all('a')
-
-        # Initialize counts for this HTML file
         incoming_count = 0
         outgoing_count = 0
 
-        for anchor_tag in anchor_tags:
+        for anchor_tag in soup.find_all('a'):
             href = anchor_tag.get('href')
             if href:
-                # Check if the href attribute contains a link to another HTML file
                 if href.endswith('.html'):
                     outgoing_count += 1
-                    # Check if the linked HTML file exists in the same bucket
                     linked_file_name = href.split('/')[-1]
-                    if linked_file_name in incoming_counts:
-                        incoming_counts[linked_file_name] += 1
-                    else:
-                        incoming_counts[linked_file_name] = 1
+                    incoming_counts[linked_file_name] = incoming_counts.get(linked_file_name, 0) + 1
                 else:
                     incoming_count += 1
 
-        # Store counts in dictionaries
-        incoming_counts[blob.name] = incoming_count
         outgoing_counts[blob.name] = outgoing_count
 
-incoming_links_values = {}
-outgoing_links_values = {}
+# Define the number of concurrent workers
+num_workers = 4  # Adjust as needed
+batch_size = 200  # Adjust as needed
+
+# Use concurrent.futures to process files in parallel in batches
+with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+    # Split blobs into batches
+    for i in range(0, len(blobs), batch_size):
+        batch = blobs[i:i + batch_size]
+        # Process the batch of files
+        executor.map(process_html_file, batch)
+
 
 # Print incoming and outgoing link counts for all HTML files
 for file_name, incoming_count in incoming_counts.items():
@@ -97,43 +96,75 @@ print(f"Max: {max_outgoing}")
 print(f"Min: {min_outgoing}")
 print(f"Quintiles: {quintiles_outgoing}")
 
-# Initialize PageRank values for all pages
-num_pages = len(outgoing_counts)  # Assuming outgoing_counts contains all pages
-pagerank = {page: 1.0 / num_pages for page in outgoing_counts}
+# num_pages = len(outgoing_counts)
+# pagerank = np.full(num_pages, 1.0 / num_pages)
+# damping_factor = 0.85
+# convergence_threshold = 0.005
+# iteration = 0
 
-# Define the convergence threshold (0.5% change)
-convergence_threshold = 0.005
+# while True:
+#     new_pagerank = np.full(num_pages, (1.0 - damping_factor) / num_pages)
 
-# Perform iterative PageRank calculation
-# Perform iterative PageRank calculation
-while True:
-    new_pagerank = {}
-    total_change = 0
+#     for i, page in enumerate(outgoing_counts):
+#         for linking_page, incoming_count in incoming_counts.items():
+#             if page != linking_page and page in outgoing_counts:
+#                 num_links = outgoing_counts[linking_page]
+#                 if num_links != 0:
+#                     new_pagerank[i] += damping_factor * pagerank[i] * incoming_count / num_links
 
-    for page in outgoing_counts:
-        new_pagerank[page] = 0.15  # Initialize with the constant 0.15
+#     total_change = np.sum(np.abs(new_pagerank - pagerank))
+#     pagerank = new_pagerank
+#     iteration += 1
 
-        # Calculate the contribution from incoming links
-        for linking_page, incoming_count in incoming_counts.items():
-            if page != linking_page and page in outgoing_counts:
-                num_links = outgoing_counts[linking_page]
-                # Check if num_links is non-zero before division
-                if num_links != 0:
-                    new_pagerank[page] += 0.85 * pagerank[linking_page] / num_links
+#     if total_change < convergence_threshold:
+#         break
+# sorted_pages = np.argsort(pagerank)[::-1][:5]
 
-        total_change += abs(new_pagerank[page] - pagerank[page])
+# for i in sorted_pages:
+#     print(f"Page: {list(outgoing_counts.keys())[i]}, Rank: {pagerank[i]:.6f}")
 
-    pagerank = new_pagerank
+# Create a list of all unique page names (nodes)
+all_pages = list(set(incoming_counts.keys()).union(outgoing_counts.keys()))
+num_pages = len(all_pages)
 
-    # Check for convergence
-    if total_change < convergence_threshold:
-        break
+# Create a sparse link matrix (dok_matrix) for the graph
+link_matrix = dok_matrix((num_pages, num_pages), dtype=np.float32)
 
+for linking_page, incoming_count in incoming_counts.items():
+    if linking_page not in outgoing_counts:
+        continue
+    total_outgoing_links = outgoing_counts[linking_page]
+    if total_outgoing_links != 0:
+        for page in outgoing_counts:
+            if page != linking_page:
+                row_idx = all_pages.index(linking_page)
+                col_idx = all_pages.index(page)
+                link_matrix[row_idx, col_idx] = incoming_count / total_outgoing_links
+    else:
+        for page in outgoing_counts:
+            if page != linking_page:
+                row_idx = all_pages.index(linking_page)
+                col_idx = all_pages.index(page)
+                link_matrix[row_idx, col_idx] = 1.0 / num_pages
 
-# Sort pages by PageRank and get the top 5
-top_pages = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)[:5]
+# Convert the link matrix to a compressed sparse row (CSR) matrix
+link_matrix_csr = csr_matrix(link_matrix)
+
+# Calculate PageRank using the power iteration method
+damping_factor = 0.85
+num_iterations = 100  # You can adjust the number of iterations
+
+# Initialize the PageRank vector
+pagerank = np.ones(num_pages, dtype=np.float32) / num_pages
+
+for _ in range(num_iterations):
+    # Perform matrix-vector multiplication
+    pagerank = damping_factor * link_matrix_csr.dot(pagerank) + (1 - damping_factor) / num_pages
+
+sorted_pages = [(page, rank) for page, rank in zip(all_pages, pagerank)]
+sorted_pages.sort(key=lambda x: x[1], reverse=True)
+top_pages = sorted_pages[:5]
 
 # Output the top 5 pages by PageRank score
 for page, rank in top_pages:
-    print(f"{page}: {rank}")
-
+    print(f"Page: {page}, Rank: {rank:.6f}")
