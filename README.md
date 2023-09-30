@@ -13,12 +13,11 @@ IMPORTANT NOTES:
 2.	Bucket name -> u62138442_hw2_b2
 You just need to download the tasks.py file and run it the cloud shell with having the html files within the same bucket.
 
-Github link: url : https://github.com/aishreddy13/DS561_hw2 (but you have to accept the invite before you access)
- 
-  SSH: git@github.com:aishreddy13/DS561_hw2.git
-
-HTTP: https://github.com/aishreddy13/DS561_hw2.git
-
+Github link:
+1. url : https://github.com/aishreddy13/DS561_hw2 (but you have to accept the invite before you access)
+2. SSH: git@github.com:aishreddy13/DS561_hw2.git
+3. HTTP: https://github.com/aishreddy13/DS561_hw2.git
+   
 Below I have explained how I wrote the code and also what ways I tried ti run the long data files:
 
 1.	In the first part of the code it processes all the html files and calculates the asked operations like finding Average, Median, Max, Min and Quintiles of incoming and outgoing links across all the html files and the output is something like this:
