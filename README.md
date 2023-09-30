@@ -14,7 +14,9 @@ IMPORTANT NOTES:
 You just need to download the tasks.py file and run it the cloud shell with having the html files within the same bucket.
 
 Github link: url : https://github.com/aishreddy13/DS561_hw2 (but you have to accept the invite before you access)
- SSH: git@github.com:aishreddy13/DS561_hw2.git
+ 
+  SSH: git@github.com:aishreddy13/DS561_hw2.git
+
 HTTP: https://github.com/aishreddy13/DS561_hw2.git
 
 Below I have explained how I wrote the code and also what ways I tried ti run the long data files:
