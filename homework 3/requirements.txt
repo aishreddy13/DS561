@@ -1,0 +1,6 @@
+
+functions-framework==3.*
+google-cloud-storage==1.42.3
+flask
+Flask
+google-cloud-pubsub
